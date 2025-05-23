@@ -5,9 +5,12 @@ import (
 	"log"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Order struct {
+	ID        uuid.UUID
 	Size      float64
 	Bid       bool
 	Limit     *Limit
@@ -22,6 +25,7 @@ func (o Orders) Less(i, j int) bool { return o[i].Timestamp > o[j].Timestamp }
 
 func NewOrder(bid bool, size float64) *Order {
 	return &Order{
+		ID:        uuid.New(),
 		Size:      size,
 		Bid:       bid,
 		Timestamp: time.Now().UnixNano(),
@@ -165,6 +169,7 @@ type Orderbook struct {
 	asks []*Limit
 	bids []*Limit
 
+	Orders    map[uuid.UUID]*Order
 	AskLimits map[float64]*Limit
 	BidLimits map[float64]*Limit
 }
@@ -173,6 +178,7 @@ func NewOrderbook() *Orderbook {
 	return &Orderbook{
 		asks:      []*Limit{},
 		bids:      []*Limit{},
+		Orders:    make(map[uuid.UUID]*Order),
 		AskLimits: make(map[float64]*Limit),
 		BidLimits: make(map[float64]*Limit),
 	}
@@ -232,6 +238,7 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 		}
 	}
 	limit.AddOrder(o)
+	ob.Orders[o.ID] = o
 }
 
 func (ob *Orderbook) CancelOrder(o *Order) {
@@ -241,6 +248,8 @@ func (ob *Orderbook) CancelOrder(o *Order) {
 	if len(limit.Orders) == 0 {
 		ob.DeleteLimit(o.Bid, limit)
 	}
+
+	delete(ob.Orders, o.ID)
 }
 
 func (ob *Orderbook) BidTotalVolume() float64 {
