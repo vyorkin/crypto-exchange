@@ -1,8 +1,17 @@
 package main
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"fmt"
+	"log"
+	"math/big"
 	"net/http"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/vyorkin/crypto-exchange/orderbook"
@@ -13,16 +22,40 @@ type Market string
 const MarketETH = "ETH"
 
 type Exchange struct {
+	PrivateKey *ecdsa.PrivateKey
 	orderbooks map[Market]*orderbook.Orderbook
 }
 
-func NewExchange() *Exchange {
+func NewExchange(privateKeyStr string) (*Exchange, error) {
+	privateKey, err := crypto.HexToECDSA(privateKeyStr)
+	if err != nil {
+		return nil, err
+	}
+
 	orderbooks := make(map[Market]*orderbook.Orderbook)
 	orderbooks[MarketETH] = orderbook.NewOrderbook()
 
 	return &Exchange{
-		orderbooks,
+		PrivateKey: privateKey,
+		orderbooks: orderbooks,
+	}, nil
+}
+
+type User struct {
+	ID         uuid.UUID
+	PrivateKey *ecdsa.PrivateKey
+}
+
+func NewUser(privateKeyStr string) (*User, error) {
+	privateKey, err := crypto.HexToECDSA(privateKeyStr)
+	if err != nil {
+		return nil, err
 	}
+
+	return &User{
+		ID:         uuid.New(),
+		PrivateKey: privateKey,
+	}, nil
 }
 
 type OrderType string
@@ -182,14 +215,70 @@ func (ex *Exchange) handleCancelOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, order)
 }
 
+const exchangePrivateKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
 func main() {
-	ex := NewExchange()
+	exchange, err := NewExchange(exchangePrivateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	router := gin.Default()
 
-	router.GET("/book/:market", ex.handleGetBook)
-	router.POST("/order", ex.handlePlaceOrder)
-	router.DELETE("/order/:market/:id", ex.handleCancelOrder)
+	router.GET("/book/:market", exchange.handleGetBook)
+	router.POST("/order", exchange.handlePlaceOrder)
+	router.DELETE("/order/:market/:id", exchange.handleCancelOrder)
+
+	client, err := ethclient.Dial("http://localhost:8545")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+	address := common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+
+	balance, err := client.BalanceAt(ctx, address, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("balance: %v", balance)
+
+	publicKey := exchange.PrivateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		log.Fatal("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	value := big.NewInt(1000000000000000000) // in wei (1 eth)
+
+	gasLimit := uint64(21000) // in units
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	toAddress := common.HexToAddress("0x4592d8f8d7b001e72cb26a73e4fa1806a51ac79d")
+	tx := types.NewTransaction(nonce, toAddress, value, gasLimit, gasPrice, nil)
+	chainID, err := client.NetworkID(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), exchange.PrivateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.SendTransaction(context.Background(), signedTx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("tx sent: %s", signedTx.Hash().Hex()) // tx sent: 0x77006fcb3938f648e2cc65bafd27dec30b9bfbe9df41f78498b9c8b7322a249e
 
 	router.Run("localhost:3000")
 }
