@@ -3,6 +3,7 @@ package orderbook
 import (
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"time"
 
@@ -86,15 +87,11 @@ func (l *Limit) AddOrder(o *Order) {
 }
 
 func (l *Limit) DeleteOrder(o *Order) {
-	for i := 0; i < len(l.Orders); i++ {
-		if l.Orders[i] == o {
-			l.Orders[i] = l.Orders[len(l.Orders)-1]
-			l.Orders = l.Orders[:len(l.Orders)-1]
-		}
-	}
+	l.Orders = slices.DeleteFunc(l.Orders, func(order *Order) bool {
+		return order == o
+	})
 	o.Limit = nil
 	l.TotalVolume -= o.Size
-
 	sort.Sort(l.Orders)
 }
 
@@ -192,26 +189,35 @@ func (ob *Orderbook) PlaceMarkerOrder(o *Order) []Match {
 			log.Panicf("Not enough volume [size: %.2f] in ask's for market order [size: %.2f]", ob.AskTotalVolume(), o.Size)
 		}
 
+		var limitsToDelete []*Limit
 		for _, limit := range ob.Asks() {
 			limitMatches := limit.Fill(o)
 			matches = append(matches, limitMatches...)
 
 			if len(limit.Orders) == 0 {
-				ob.DeleteLimit(false, limit)
+				limitsToDelete = append(limitsToDelete, limit)
 			}
 		}
+		for _, limit := range limitsToDelete {
+			ob.DeleteLimit(false, limit)
+		}
+
 	} else {
 		if o.Size > ob.BidTotalVolume() {
 			log.Panicf("Not enough volume [size: %.2f] in bid's for market order [size: %.2f]", ob.BidTotalVolume(), o.Size)
 		}
 
+		var limitsToDelete []*Limit
 		for _, limit := range ob.Bids() {
 			limitMatches := limit.Fill(o)
 			matches = append(matches, limitMatches...)
 
 			if len(limit.Orders) == 0 {
-				ob.DeleteLimit(true, limit)
+				limitsToDelete = append(limitsToDelete, limit)
 			}
+		}
+		for _, limit := range limitsToDelete {
+			ob.DeleteLimit(true, limit)
 		}
 	}
 
@@ -281,21 +287,13 @@ func (ob *Orderbook) Bids() []*Limit {
 func (ob *Orderbook) DeleteLimit(bid bool, l *Limit) {
 	if bid {
 		delete(ob.BidLimits, l.Price)
-
-		for i := 0; i < len(ob.bids); i++ {
-			if ob.bids[i] == l {
-				ob.bids[i] = ob.bids[len(ob.bids)-1]
-				ob.bids = ob.bids[:len(ob.bids)-1]
-			}
-		}
+		ob.bids = slices.DeleteFunc(ob.bids, func(limit *Limit) bool {
+			return limit == l
+		})
 	} else {
 		delete(ob.AskLimits, l.Price)
-
-		for i := 0; i < len(ob.asks); i++ {
-			if ob.asks[i] == l {
-				ob.asks[i] = ob.asks[len(ob.asks)-1]
-				ob.asks = ob.asks[:len(ob.asks)-1]
-			}
-		}
+		ob.asks = slices.DeleteFunc(ob.asks, func(limit *Limit) bool {
+			return limit == l
+		})
 	}
 }
