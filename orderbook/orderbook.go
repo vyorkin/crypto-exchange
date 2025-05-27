@@ -1,17 +1,37 @@
 package orderbook
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"log"
 	"slices"
 	"sort"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 )
 
+type User struct {
+	ID         uuid.UUID
+	PrivateKey *ecdsa.PrivateKey
+}
+
+func NewUser(privateKeyStr string) (*User, error) {
+	privateKey, err := crypto.HexToECDSA(privateKeyStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &User{
+		ID:         uuid.New(),
+		PrivateKey: privateKey,
+	}, nil
+}
+
 type Order struct {
 	ID        uuid.UUID
+	UserID    uuid.UUID
 	Size      float64
 	Bid       bool
 	Limit     *Limit
@@ -24,21 +44,22 @@ func (o Orders) Len() int           { return len(o) }
 func (o Orders) Swap(i, j int)      { o[i], o[j] = o[j], o[i] }
 func (o Orders) Less(i, j int) bool { return o[i].Timestamp > o[j].Timestamp }
 
-func NewOrder(bid bool, size float64) *Order {
+func NewOrder(bid bool, size float64, userID uuid.UUID) *Order {
 	return &Order{
 		ID:        uuid.New(),
+		UserID:    userID,
 		Size:      size,
 		Bid:       bid,
 		Timestamp: time.Now().UnixNano(),
 	}
 }
 
-func NewSellOrder(size float64) *Order {
-	return NewOrder(false, size)
+func NewSellOrder(size float64, userID uuid.UUID) *Order {
+	return NewOrder(false, size, userID)
 }
 
-func NewBuyOrder(size float64) *Order {
-	return NewOrder(true, size)
+func NewBuyOrder(size float64, userID uuid.UUID) *Order {
+	return NewOrder(true, size, userID)
 }
 
 func (o *Order) String() string {

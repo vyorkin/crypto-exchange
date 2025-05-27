@@ -23,6 +23,7 @@ const MarketETH = "ETH"
 
 type Exchange struct {
 	PrivateKey *ecdsa.PrivateKey
+	users      map[uuid.UUID]*orderbook.User
 	orderbooks map[Market]*orderbook.Orderbook
 }
 
@@ -35,26 +36,12 @@ func NewExchange(privateKeyStr string) (*Exchange, error) {
 	orderbooks := make(map[Market]*orderbook.Orderbook)
 	orderbooks[MarketETH] = orderbook.NewOrderbook()
 
+	users := make(map[uuid.UUID]*orderbook.User)
+
 	return &Exchange{
 		PrivateKey: privateKey,
+		users:      users,
 		orderbooks: orderbooks,
-	}, nil
-}
-
-type User struct {
-	ID         uuid.UUID
-	PrivateKey *ecdsa.PrivateKey
-}
-
-func NewUser(privateKeyStr string) (*User, error) {
-	privateKey, err := crypto.HexToECDSA(privateKeyStr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &User{
-		ID:         uuid.New(),
-		PrivateKey: privateKey,
 	}, nil
 }
 
@@ -151,7 +138,8 @@ func (ex *Exchange) handlePlaceOrder(c *gin.Context) {
 	market := Market(orderData.Market)
 	ob := ex.orderbooks[market]
 
-	order := orderbook.NewOrder(orderData.Bid, orderData.Size)
+	// TODO: user
+	order := orderbook.NewOrder(orderData.Bid, orderData.Size, uuid.New())
 	if orderData.Type == LimitOrder {
 		ob.PlaceLimitOrder(orderData.Price, order)
 		c.JSON(http.StatusCreated, orderData)
